@@ -4,7 +4,8 @@ import Router from './Router.js';
 
 const router = express.Router();
 
-new Router<gamesController>(router)
+new Router<gamesController>('games', router)
+  .withGuard('games')
   .get('/games', gamesController, 'list')
   .get('/games/:id', gamesController, 'read')
   .post('/games', gamesController, 'create')

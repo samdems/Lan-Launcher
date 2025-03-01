@@ -1,18 +1,25 @@
-import { Router as ExpressRouter } from 'express';
-import { Controller } from '../Controllers/Controller.js';
+import { Router as ExpressRouter } from "express";
+import { Controller } from "../Controllers/Controller.js";
+import { jwt, makeGuard } from "../Middleware/guard.js";
+import { AllRoles } from "../roles.js";
 
-type routerHandlerGet = 'list' | 'read';
-type routerHandlerPost = 'create';
-type routerHandlerPut = 'update';
-type routerHandlerDelete = 'delete';
+type routerHandlerGet = "list" | "read";
+type routerHandlerPost = "create";
+type routerHandlerPut = "update";
+type routerHandlerDelete = "delete";
+type HTTPMethods = "get" | "post" | "put" | "delete" | "all";
 
 export default class Router<T extends Controller> {
   private router: ExpressRouter;
-  private objects: any = {};
+  private objects: Record<string, T> = {};
+  private name: string;
+  private guard: boolean = false;
+  private hasGuard: boolean = false;
+  private guardName: AllRoles | null = null;
 
-  constructor(router: ExpressRouter) {
+  constructor(name: string, router: ExpressRouter) {
+    this.name = name;
     this.router = router;
-    this.objects = {} as Record<string, T>;
   }
 
   private makeOrFindObject<T extends Controller>(ObjectClass: new () => T) {
@@ -23,40 +30,78 @@ export default class Router<T extends Controller> {
     const objName = ObjectClass.name;
 
     if (!this.objects[objName]) {
-      this.objects[objName] = new ObjectClass() as T;
+      this.objects[objName] = new ObjectClass() as any;
     }
 
     return this.objects[objName];
   }
 
-  public get<T extends Controller>(path: string, object: new () => T, requestHandler: routerHandlerGet) {
+  private registerRoute<T extends Controller>(
+    path: string,
+    object: new () => T,
+    requestHandler: string,
+    method: HTTPMethods,
+  ) {
     const obj = this.makeOrFindObject<T>(object);
-    this.router.get(path, (req, res) => obj[requestHandler](req, res))
+    if (this.hasGuard && this.guardName) {
+      const guard = makeGuard(this.guardName, requestHandler);
+      // @ts-ignore
+      this.router[method](path, guard, obj[requestHandler].bind(obj));
+      return;
+    }
+    // @ts-ignore
+    this.router[method](path, obj[requestHandler].bind(obj));
+  }
+
+  public withGuard(guardName: AllRoles) {
+    this.router.use(jwt);
+    this.hasGuard = true;
+    this.guardName = guardName;
     return this;
   }
 
-  public post<T extends Controller>(path: string, object: new () => T, requestHandler: routerHandlerPost) {
-    const obj = this.makeOrFindObject<T>(object);
-    this.router.post(path, (req, res) => obj[requestHandler](req, res))
+  public get<T extends Controller>(
+    path: string,
+    object: new () => T,
+    requestHandler: routerHandlerGet,
+  ) {
+    this.registerRoute(path, object, requestHandler, "get");
     return this;
   }
 
-  public put<T extends Controller>(path: string, object: new () => T, requestHandler: routerHandlerPut) {
-    const obj = this.makeOrFindObject<T>(object);
-    this.router.put(path, (req, res) => obj[requestHandler](req, res))
+  public post<T extends Controller>(
+    path: string,
+    object: new () => T,
+    requestHandler: routerHandlerPost,
+  ) {
+    this.registerRoute(path, object, requestHandler, "post");
     return this;
   }
 
-  public delete<T extends Controller>(path: string, object: new () => T, requestHandler: routerHandlerDelete) {
-    const obj = this.makeOrFindObject<T>(object);
-    this.router.delete(path, (req, res) => obj[requestHandler](req, res))
+  public put<T extends Controller>(
+    path: string,
+    object: new () => T,
+    requestHandler: routerHandlerPut,
+  ) {
+    this.registerRoute(path, object, requestHandler, "put");
     return this;
   }
 
-  public all<T extends Controller>(path: string, object: new () => T, requestHandler: string) {
-    const obj = this.makeOrFindObject<T>(object);
-    this.router.all(path, (req, res) => obj[requestHandler](req, res))
+  public delete<T extends Controller>(
+    path: string,
+    object: new () => T,
+    requestHandler: routerHandlerDelete,
+  ) {
+    this.registerRoute(path, object, requestHandler, "delete");
     return this;
   }
 
+  public all<T extends Controller>(
+    path: string,
+    object: new () => T,
+    requestHandler: string,
+  ) {
+    this.registerRoute(path, object, requestHandler, "all");
+    return this;
+  }
 }
